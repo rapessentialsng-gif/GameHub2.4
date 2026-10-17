@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Frontline: Last Zone — Prototype</title>
+  <style>
+    html,body{height:100%;margin:0;overflow:hidden;background:#111}
+    #canvas-container{position:fixed;inset:0}
+    .hud{position:fixed;z-index:20;pointer-events:none;color:#fff;font-family:Arial,Helvetica,sans-serif}
+    #left-controls{left:10px;bottom:10px;width:40%;height:40%;}
+    #right-controls{right:10px;bottom:10px;width:40%;height:40%;}
+    .joystick{position:absolute;bottom:20px;left:20px;width:140px;height:140px;border-radius:50%;background:rgba(0,0,0,0.25);pointer-events:auto}
+    .stick{position:absolute;width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.15);left:42px;top:42px;transform:translate(0,0)}
+    .btns{position:absolute;right:10px;bottom:90px;display:flex;flex-direction:column;gap:10px;pointer-events:auto}
+    .btn{width:64px;height:64px;border-radius:12px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-weight:bold;color:#fff}
+    .mini{width:52px;height:52px}
+    #hud-top{left:10px;top:10px}
+    #message{position:fixed;left:50%;top:10px;transform:translateX(-50%);background:rgba(0,0,0,0.4);padding:6px 12px;border-radius:8px}
+    #crosshair{position:fixed;left:50%;top:50%;width:16px;height:16px;margin-left:-8px;margin-top:-8px;pointer-events:none;z-index:15}
+    #crosshair:after{content:"";position:absolute;left:7px;top:0;width:2px;height:16px;background:#fff;opacity:0.85}
+    #crosshair:before{content:"";position:absolute;left:0;top:7px;width:16px;height:2px;background:#fff;opacity:0.85}
+    @media (min-width:900px){ .joystick{display:none} }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="hud-top" class="hud">
+    <div id="message">Frontline: Last Zone — Prototype (mobile-first). Use left joystick and right side to aim. Fire = bottom-right button.</div>
+  </div>
+  <div id="crosshair"></div>
+
+  <div id="left-controls" class="hud">
+    <div id="joy" class="joystick" style="pointer-events:auto">
+      <div id="stick" class="stick"></div>
+    </div>
+  </div>
+
+  <div id="right-controls" class="hud">
+    <div class="btns" style="pointer-events:auto">
+      <div id="btn-fire" class="btn">F</div>
+      <div id="btn-jump" class="btn mini">J</div>
+      <div id="btn-crouch" class="btn mini">C</div>
+      <div id="btn-reload" class="btn mini">R</div>
+      <div id="btn-sprint" class="btn mini">S</div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
