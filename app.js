@@ -1,8 +1,6 @@
 import * as THREE from 'https://unpkg.com/three@0.146.0/build/three.module.js';
 
-const GAME_CONFIG = {
-  stage: 1,
-  level: 1,
+const CONFIG = {
   totalStages: 4,
   levelsPerStage: 50,
   saveKey: 'frontline_last_zone_save_v1',
@@ -18,7 +16,6 @@ const saveStageChip = document.getElementById('save-stage-chip');
 const saveLevelChip = document.getElementById('save-level-chip');
 const saveXpChip = document.getElementById('save-xp-chip');
 const saveKillsChip = document.getElementById('save-kills-chip');
-
 const healthStat = document.getElementById('health-stat');
 const ammoStat = document.getElementById('ammo-stat');
 const stageStat = document.getElementById('stage-stat');
@@ -28,9 +25,7 @@ const objectiveText = document.getElementById('objective-text');
 const centerBanner = document.getElementById('center-banner');
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x7fb4d9);
-scene.fog = new THREE.Fog(0x7fb4d9, 30, 220);
-
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 600);
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -38,48 +33,107 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.domElement.style.touchAction = 'none';
 container.appendChild(renderer.domElement);
 
-const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 600);
-camera.position.set(0, 2.6, 8);
+const state = {
+  stage: 1,
+  level: 1,
+  currentWeaponIndex: 0,
+  waveActive: false,
+  missionStart: 0,
+  missionType: 'eliminate',
+};
 
-const hemi = new THREE.HemisphereLight(0xffffff, 0x405132, 1.2);
-hemi.position.set(0, 50, 0);
-scene.add(hemi);
+const themes = {
+  1: {
+    bg: 0x7fb4d9,
+    fog: 0x7fb4d9,
+    ground: 0x6d8f52,
+    accent: 0x4fd1ff,
+    name: 'Forest Front',
+    objective: 'Eliminate the hostile squad and stay inside the safe zone.'
+  },
+  2: {
+    bg: 0x6e8199,
+    fog: 0x6e8199,
+    ground: 0x6d7584,
+    accent: 0x8ce1ff,
+    name: 'Industrial Yard',
+    objective: 'Clear the compounds and secure the extraction route.'
+  },
+  3: {
+    bg: 0x8f7362,
+    fog: 0x8f7362,
+    ground: 0x7a5d3d,
+    accent: 0xffd177,
+    name: 'Desert Run',
+    objective: 'Survive the ambush and hold the checkpoint.'
+  },
+  4: {
+    bg: 0x3f4c67,
+    fog: 0x3f4c67,
+    ground: 0x475666,
+    accent: 0xa184ff,
+    name: 'Night Siege',
+    objective: 'Break the last defense line and survive the final sweep.'
+  }
+};
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-dirLight.position.set(-12, 26, -12);
-scene.add(dirLight);
+const weaponDefs = [
+  { name: 'Rifle', damage: 34, fireRate: 170, ammo: 30, maxAmmo: 30, color: 0xfaf7a4 },
+  { name: 'SMG', damage: 18, fireRate: 95, ammo: 42, maxAmmo: 42, color: 0x8ad8ff },
+  { name: 'Shotgun', damage: 12, fireRate: 420, ammo: 16, maxAmmo: 16, color: 0xffb474 }
+];
 
-const ambient = new THREE.AmbientLight(0xffffff, 0.18);
-scene.add(ambient);
+const player = {
+  mesh: null,
+  speed: 5.8,
+  sprintMultiplier: 1.7,
+  health: 100,
+  maxHealth: 100,
+  xp: 0,
+  kills: 0,
+  ammo: 30,
+  maxAmmo: 30,
+  vel: new THREE.Vector3(),
+  sprint: false,
+  crouch: false,
+  firing: false,
+  lastShot: 0,
+  currentWeaponIndex: 0,
+  weaponCooldown: 0,
+};
 
 const mapSize = 220;
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(mapSize, mapSize, 2, 2),
-  new THREE.MeshStandardMaterial({ color: 0x6d8f52, roughness: 0.96, metalness: 0.05 })
-);
-ground.rotation.x = -Math.PI / 2;
-scene.add(ground);
-
-const road = new THREE.Mesh(
-  new THREE.PlaneGeometry(38, 180, 1, 1),
-  new THREE.MeshStandardMaterial({ color: 0x4a5459, roughness: 0.8, metalness: 0.2 })
-);
-road.rotation.x = -Math.PI / 2;
-road.position.set(0, 0.01, 0);
-scene.add(road);
-
 const safeZoneCenter = new THREE.Vector2(0, 0);
 let safeZoneRadius = 80;
-let safeZoneMesh = new THREE.Mesh(
-  new THREE.CircleGeometry(safeZoneRadius, 80),
-  new THREE.MeshBasicMaterial({ color: 0x5ef7b8, wireframe: true, transparent: true, opacity: 0.42 })
-);
-safeZoneMesh.rotation.x = -Math.PI / 2;
-safeZoneMesh.position.y = 0.03;
-scene.add(safeZoneMesh);
+let safeZoneMesh = null;
 let zoneShrinkTimer = 0;
-
+const bots = [];
+const bullets = [];
+const pickups = [];
 const props = [];
+const keys = {};
+
+function setTheme(stage) {
+  const theme = themes[stage] || themes[1];
+  scene.background = new THREE.Color(theme.bg);
+  scene.fog = new THREE.Fog(theme.fog, 30, 220);
+  ground.material.color.setHex(theme.ground);
+  dirLight.color.setHex(theme.accent);
+  objectiveText.textContent = theme.objective;
+}
+
+function createGround() {
+  const groundMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(mapSize, mapSize, 2, 2),
+    new THREE.MeshStandardMaterial({ color: 0x6d8f52, roughness: 0.96, metalness: 0.05 })
+  );
+  groundMesh.rotation.x = -Math.PI / 2;
+  scene.add(groundMesh);
+  return groundMesh;
+}
+
+const ground = createGround();
+
 function addProp(x, z, type = 'tree') {
   if (type === 'tree') {
     const trunk = new THREE.Mesh(
@@ -96,44 +150,37 @@ function addProp(x, z, type = 'tree') {
     leaves.position.set(x, 2.2, z);
     scene.add(leaves);
     props.push({ type: 'tree', position: new THREE.Vector3(x, 0, z), radius: 1.5 });
-  } else if (type === 'crate') {
+  } else {
     const crate = new THREE.Mesh(
-      new THREE.BoxGeometry(1.3, 1.3, 1.3),
+      new THREE.BoxGeometry(1.2, 1.2, 1.2),
       new THREE.MeshStandardMaterial({ color: 0x7a6f52, roughness: 0.9 })
     );
-    crate.position.set(x, 0.65, z);
+    crate.position.set(x, 0.6, z);
     scene.add(crate);
-    props.push({ type: 'crate', position: new THREE.Vector3(x, 0, z), radius: 1.1 });
+    props.push({ type: 'crate', position: new THREE.Vector3(x, 0, z), radius: 1.2 });
   }
 }
 
-for (let i = 0; i < 55; i++) {
+for (let i = 0; i < 60; i++) {
   const x = (Math.random() - 0.5) * 170;
   const z = (Math.random() - 0.5) * 170;
-  addProp(x, z, Math.random() > 0.5 ? 'tree' : 'crate');
+  addProp(x, z, Math.random() > 0.45 ? 'tree' : 'crate');
 }
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x405132, 1.2);
+hemi.position.set(0, 50, 0);
+scene.add(hemi);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+dirLight.position.set(-12, 26, -12);
+scene.add(dirLight);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.18);
+scene.add(ambient);
 
 function createBodyColor(r, g, b) {
   return new THREE.MeshStandardMaterial({ color: new THREE.Color(r, g, b), roughness: 0.7, metalness: 0.15 });
 }
-
-const player = {
-  mesh: null,
-  speed: 5.8,
-  sprintMultiplier: 1.7,
-  health: 100,
-  maxHealth: 100,
-  ammo: 30,
-  maxAmmo: 30,
-  xp: 0,
-  kills: 0,
-  vel: new THREE.Vector3(),
-  sprint: false,
-  crouch: false,
-  firing: false,
-  _lastShot: 0,
-  _cooldown: 0,
-};
 
 function createPlayerMesh() {
   const group = new THREE.Group();
@@ -146,7 +193,7 @@ function createPlayerMesh() {
   group.add(head);
 
   const weapon = new THREE.Mesh(
-    new THREE.BoxGeometry(0.18, 0.18, 1.1),
+    new THREE.BoxGeometry(0.18, 0.18, 1.0),
     new THREE.MeshStandardMaterial({ color: 0x1a1e22, metalness: 0.6, roughness: 0.35 })
   );
   weapon.position.set(0.5, 1.4, 0.6);
@@ -158,9 +205,41 @@ function createPlayerMesh() {
 
 player.mesh = createPlayerMesh();
 scene.add(player.mesh);
-player.mesh.position.set(0, 0, 0);
 
-const bots = [];
+function createPickup(x, z, kind = 'ammo') {
+  const mesh = new THREE.Mesh(
+    kind === 'medkit'
+      ? new THREE.OctahedronGeometry(0.55, 0)
+      : new THREE.CylinderGeometry(0.42, 0.42, 0.6, 14),
+    new THREE.MeshStandardMaterial({
+      color: kind === 'medkit' ? 0x56f39a : 0xf7cd63,
+      emissive: kind === 'medkit' ? 0x113322 : 0x332a08,
+      emissiveIntensity: 0.35,
+      roughness: 0.35,
+      metalness: 0.2
+    })
+  );
+
+  mesh.position.set(x, 0.7, z);
+  mesh.userData = { kind, bob: Math.random() * Math.PI * 2 };
+  scene.add(mesh);
+  pickups.push(mesh);
+}
+
+function spawnPickupsForLevel(level) {
+  for (let i = pickups.length - 1; i >= 0; i--) {
+    scene.remove(pickups[i]);
+    pickups.splice(i, 1);
+  }
+
+  const count = 3 + Math.min(level, 5);
+  for (let i = 0; i < count; i++) {
+    const angle = (Math.PI * 2 * i) / count + Math.random() * 0.8;
+    const radius = 18 + Math.random() * 35;
+    createPickup(Math.cos(angle) * radius, Math.sin(angle) * radius, i % 2 === 0 ? 'ammo' : 'medkit');
+  }
+}
+
 function spawnBot(x, z, tone = 0xff5a5a) {
   const bot = new THREE.Group();
 
@@ -186,7 +265,7 @@ function spawnBot(x, z, tone = 0xff5a5a) {
     targetTimer: 0,
     alive: true,
     speed: 1.2 + Math.random() * 0.9,
-    attackDelay: 0.85 + Math.random() * 0.6,
+    attackDelay: 0.8 + Math.random() * 0.7,
   };
 
   scene.add(bot);
@@ -206,170 +285,218 @@ function spawnWaveForLevel(level) {
     const radius = 24 + Math.random() * (42 + level * 3);
     spawnBot(Math.cos(angle) * radius, Math.sin(angle) * radius, i % 2 === 0 ? 0xff6b6b : 0xffb449);
   }
+
+  spawnPickupsForLevel(level);
+  state.waveActive = true;
+  state.missionType = (state.stage + state.level) % 2 === 0 ? 'hold' : 'eliminate';
 }
 
-const bullets = [];
+function buildZoneMesh(radius) {
+  const mesh = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 72),
+    new THREE.MeshBasicMaterial({ color: 0x5ef7b8, wireframe: true, transparent: true, opacity: 0.42 })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.03;
+  return mesh;
+}
+
+safeZoneMesh = buildZoneMesh(safeZoneRadius);
+scene.add(safeZoneMesh);
+
 function shoot(origin, direction, owner) {
+  const weapon = owner === 'player' ? weaponDefs[player.currentWeaponIndex] : null;
+  const color = weapon ? weapon.color : 0xff924a;
+
   const bullet = new THREE.Mesh(
     new THREE.SphereGeometry(0.08, 8, 8),
-    new THREE.MeshBasicMaterial({ color: owner === 'player' ? 0xfaf7a4 : 0xff924a })
+    new THREE.MeshBasicMaterial({ color })
   );
   bullet.position.copy(origin);
-  bullet.userData = { owner, vel: direction.clone().multiplyScalar(owner === 'player' ? 46 : 30), life: 3.5 };
+  bullet.userData = {
+    owner,
+    vel: direction.clone().multiplyScalar(owner === 'player' ? 46 : 29),
+    life: 3.5,
+  };
   scene.add(bullet);
   bullets.push(bullet);
 }
 
 function updateObjectiveText() {
-  const objective = `Eliminate ${Math.max(0, bots.length)} hostiles and survive the shrinking zone. ${player.health > 0 ? 'Advance when objective is complete.' : 'Mission failed.'}`;
-  objectiveText.textContent = objective;
+  const theme = themes[state.stage] || themes[1];
+  const modeText = state.missionType === 'hold' ? 'Hold the zone and wipe the siege' : 'Eliminate all hostiles and survive';
+  objectiveText.textContent = `${theme.objective} Mission: ${modeText}.`;
 }
 
 function updateHUD() {
   healthStat.textContent = `${Math.max(0, Math.round(player.health))}`;
   ammoStat.textContent = `${player.ammo}`;
-  stageStat.textContent = `${GAME_CONFIG.stage}`;
-  levelStat.textContent = `${GAME_CONFIG.level}`;
+  stageStat.textContent = `${state.stage}`;
+  levelStat.textContent = `${state.level}`;
   xpStat.textContent = `${player.xp}`;
   updateObjectiveText();
 }
 
 function saveProgress() {
-  const payload = {
-    stage: GAME_CONFIG.stage,
-    level: GAME_CONFIG.level,
-    xp: player.xp,
-    kills: player.kills,
-  };
-  localStorage.setItem(GAME_CONFIG.saveKey, JSON.stringify(payload));
-
-  saveStageChip.textContent = `Stage ${GAME_CONFIG.stage}`;
-  saveLevelChip.textContent = `Level ${GAME_CONFIG.level}`;
+  const payload = { stage: state.stage, level: state.level, xp: player.xp, kills: player.kills };
+  localStorage.setItem(CONFIG.saveKey, JSON.stringify(payload));
+  saveStageChip.textContent = `Stage ${state.stage}`;
+  saveLevelChip.textContent = `Level ${state.level}`;
   saveXpChip.textContent = `XP ${player.xp}`;
   saveKillsChip.textContent = `Kills ${player.kills}`;
 }
 
 function loadProgress() {
   try {
-    const raw = localStorage.getItem(GAME_CONFIG.saveKey);
+    const raw = localStorage.getItem(CONFIG.saveKey);
     if (!raw) return;
     const saved = JSON.parse(raw);
-    if (saved.stage) GAME_CONFIG.stage = Math.min(saved.stage, GAME_CONFIG.totalStages);
-    if (saved.level) GAME_CONFIG.level = Math.min(saved.level, GAME_CONFIG.levelsPerStage);
-    if (saved.xp) player.xp = saved.xp;
-    if (saved.kills) player.kills = saved.kills;
-  } catch (err) {
-    console.warn('Progress load failed', err);
+    if (saved.stage) state.stage = Math.min(saved.stage, CONFIG.totalStages);
+    if (saved.level) state.level = Math.min(saved.level, CONFIG.levelsPerStage);
+    if (typeof saved.xp === 'number') player.xp = saved.xp;
+    if (typeof saved.kills === 'number') player.kills = saved.kills;
+  } catch (error) {
+    console.warn('Progress load failed', error);
   }
 }
 
 function repopulateStageSelect() {
   stageSelect.innerHTML = '';
-  for (let s = 1; s <= GAME_CONFIG.totalStages; s++) {
+  for (let s = 1; s <= CONFIG.totalStages; s++) {
     const opt = document.createElement('option');
     opt.value = s;
     opt.textContent = `Stage ${s}`;
-    if (s === GAME_CONFIG.stage) opt.selected = true;
+    if (s === state.stage) opt.selected = true;
     stageSelect.appendChild(opt);
   }
-
   repopulateLevelSelect();
 }
 
 function repopulateLevelSelect() {
   levelSelect.innerHTML = '';
-  const maxLevel = GAME_CONFIG.levelsPerStage;
-  for (let l = 1; l <= maxLevel; l++) {
-    const opt = document.createElement('option');
-    opt.value = l;
-    opt.textContent = `Level ${l}`;
-    if (l === GAME_CONFIG.level) opt.selected = true;
-    levelSelect.appendChild(opt);
+  for (let l = 1; l <= CONFIG.levelsPerStage; l++) {
+    const option = document.createElement('option');
+    option.value = l;
+    option.textContent = `Level ${l}`;
+    if (l === state.level) option.selected = true;
+    levelSelect.appendChild(option);
   }
 }
 
 stageSelect.addEventListener('change', (event) => {
-  GAME_CONFIG.stage = Number(event.target.value);
-  if (GAME_CONFIG.level > GAME_CONFIG.levelsPerStage) GAME_CONFIG.level = GAME_CONFIG.levelsPerStage;
+  state.stage = Number(event.target.value);
+  if (state.level > CONFIG.levelsPerStage) state.level = CONFIG.levelsPerStage;
   repopulateLevelSelect();
+  setTheme(state.stage);
   saveProgress();
 });
 
 levelSelect.addEventListener('change', (event) => {
-  GAME_CONFIG.level = Number(event.target.value);
+  state.level = Number(event.target.value);
   saveProgress();
 });
 
-function startGame() {
+function cycleWeapon() {
+  player.currentWeaponIndex = (player.currentWeaponIndex + 1) % weaponDefs.length;
+  const selected = weaponDefs[player.currentWeaponIndex];
+  player.ammo = selected.ammo;
+  player.maxAmmo = selected.maxAmmo;
+  centerBanner.textContent = `${selected.name} equipped`;
+  setTimeout(() => {
+    centerBanner.textContent = `Stage ${state.stage} — Level ${state.level}`;
+  }, 400);
+}
+
+window.addEventListener('keydown', (event) => {
+  const key = event.key.toLowerCase();
+  keys[key] = true;
+  if (event.code === 'Space') {
+    event.preventDefault();
+    if (player.mesh.position.y <= 0.05) player.vel.y = 6.2;
+  }
+  if (key === '1' || key === '2' || key === '3') {
+    player.currentWeaponIndex = Number(key) - 1;
+    const selected = weaponDefs[player.currentWeaponIndex];
+    player.ammo = selected.ammo;
+    player.maxAmmo = selected.maxAmmo;
+  }
+  if (key === 'q' || key === 'e') cycleWeapon();
+  if (key === 'x') player.firing = true;
+});
+window.addEventListener('keyup', (event) => {
+  const key = event.key.toLowerCase();
+  keys[key] = false;
+  if (key === 'x') player.firing = false;
+});
+
+function setMissionStarted() {
   menuScreen.classList.add('hidden');
   hud.classList.remove('hidden');
-  centerBanner.textContent = `Stage ${GAME_CONFIG.stage} — Level ${GAME_CONFIG.level}`;
-  spawnWaveForLevel(GAME_CONFIG.level);
+  setTheme(state.stage);
+  player.currentWeaponIndex = 0;
+  const selected = weaponDefs[player.currentWeaponIndex];
+  player.ammo = selected.ammo;
+  player.maxAmmo = selected.maxAmmo;
+  centerBanner.textContent = `Stage ${state.stage} — Level ${state.level}`;
+  spawnWaveForLevel(state.level);
   saveProgress();
   updateHUD();
 }
 
-startButton.addEventListener('click', startGame);
+startButton.addEventListener('click', setMissionStarted);
 
 function advanceLevel() {
-  if (bots.length > 0) return;
-
-  player.xp += 60 + GAME_CONFIG.level * 12;
-  player.ammo = player.maxAmmo;
-  const nextLevel = GAME_CONFIG.level + 1;
-  if (nextLevel > GAME_CONFIG.levelsPerStage) {
-    GAME_CONFIG.level = 1;
-    GAME_CONFIG.stage = Math.min(GAME_CONFIG.stage + 1, GAME_CONFIG.totalStages);
+  if (state.level >= CONFIG.levelsPerStage) {
+    state.level = 1;
+    state.stage = Math.min(state.stage + 1, CONFIG.totalStages);
   } else {
-    GAME_CONFIG.level = nextLevel;
+    state.level += 1;
   }
 
-  centerBanner.textContent = `Mission complete! Stage ${GAME_CONFIG.stage} — Level ${GAME_CONFIG.level}`;
+  centerBanner.textContent = `Objective complete! Stage ${state.stage} level ${state.level}`;
   repopulateStageSelect();
   repopulateLevelSelect();
   saveProgress();
   setTimeout(() => {
-    centerBanner.textContent = `Stage ${GAME_CONFIG.stage} — Level ${GAME_CONFIG.level}`;
-    spawnWaveForLevel(GAME_CONFIG.level);
+    centerBanner.textContent = `Stage ${state.stage} — Level ${state.level}`;
+    spawnWaveForLevel(state.level);
     updateHUD();
-  }, 900);
+  }, 850);
 }
-
-// Joystick setup
-const joy = document.getElementById('joy');
-const stick = document.getElementById('stick');
-let joyActive = false;
-let joyOrigin = null;
-let stickVec = { x: 0, y: 0 };
 
 function getEventPoint(event) {
   const source = event.touches ? event.touches[0] : event;
   return { x: source.clientX, y: source.clientY };
 }
 
+const joy = document.getElementById('joy');
+const stick = document.getElementById('stick');
+let joyActive = false;
+let joyOrigin = null;
+let stickVec = { x: 0, y: 0 };
+
 function onJoyStart(event) {
-  const p = getEventPoint(event);
-  if (p.x > window.innerWidth / 2) return;
+  const point = getEventPoint(event);
+  if (point.x > window.innerWidth / 2) return;
   joyActive = true;
-  joyOrigin = p;
+  joyOrigin = point;
 }
 
 function onJoyMove(event) {
   if (!joyActive || !joyOrigin) return;
-  const p = getEventPoint(event);
-  const dx = p.x - joyOrigin.x;
-  const dy = p.y - joyOrigin.y;
-  const max = 44;
+  const point = getEventPoint(event);
+  const dx = point.x - joyOrigin.x;
+  const dy = point.y - joyOrigin.y;
+  const max = 46;
   const nx = Math.max(-1, Math.min(1, dx / max));
   const ny = Math.max(-1, Math.min(1, dy / max));
-  stick.style.transform = `translate(${nx * max * 0.8}px, ${ny * max * 0.8}px)`;
+  stick.style.transform = `translate(${nx * max * 0.82}px, ${ny * max * 0.82}px)`;
   stickVec = { x: nx, y: -ny };
 }
 
 function onJoyEnd() {
   joyActive = false;
   joyOrigin = null;
-  stick.style.transition = '0.08s ease';
   stick.style.transform = 'translate(0,0)';
   stickVec = { x: 0, y: 0 };
 }
@@ -381,7 +508,6 @@ joy.addEventListener('pointerdown', onJoyStart);
 window.addEventListener('pointermove', onJoyMove);
 window.addEventListener('pointerup', onJoyEnd);
 
-// camera / mouse aim
 let aimYaw = 0;
 let aimPitch = 0;
 let pointerDown = false;
@@ -440,7 +566,7 @@ btnFire.addEventListener('mousedown', () => { player.firing = true; });
 btnFire.addEventListener('mouseup', () => { player.firing = false; });
 
 btnJump.addEventListener('click', () => {
-  if (player.mesh.position.y <= 0.06) player.vel.y = 6.2;
+  if (player.mesh.position.y <= 0.05) player.vel.y = 6.2;
 });
 
 btnSprint.addEventListener('pointerdown', () => { player.sprint = true; });
@@ -450,39 +576,27 @@ btnSprint.addEventListener('pointerleave', () => { player.sprint = false; });
 btnCrouch.addEventListener('click', () => {
   player.crouch = !player.crouch;
   centerBanner.textContent = `Crouch ${player.crouch ? 'ON' : 'OFF'}`;
-  setTimeout(() => { centerBanner.textContent = `Stage ${GAME_CONFIG.stage} — Level ${GAME_CONFIG.level}`; }, 300);
+  setTimeout(() => {
+    centerBanner.textContent = `Stage ${state.stage} — Level ${state.level}`;
+  }, 300);
 });
 
 btnReload.addEventListener('click', () => {
-  if (player.ammo !== player.maxAmmo) {
-    player.ammo = player.maxAmmo;
-    centerBanner.textContent = 'Reloaded';
-    setTimeout(() => { centerBanner.textContent = `Stage ${GAME_CONFIG.stage} — Level ${GAME_CONFIG.level}`; }, 330);
-  }
-});
-
-const keys = {};
-window.addEventListener('keydown', (event) => {
-  keys[event.key.toLowerCase()] = true;
-  if (event.code === 'Space') {
-    event.preventDefault();
-    if (player.mesh.position.y <= 0.05) player.vel.y = 6.2;
-  }
-  if (event.key.toLowerCase() === 'x') {
-    player.firing = true;
-  }
-});
-window.addEventListener('keyup', (event) => {
-  keys[event.key.toLowerCase()] = false;
-  if (event.key.toLowerCase() === 'x') {
-    player.firing = false;
-  }
+  const selected = weaponDefs[player.currentWeaponIndex];
+  player.ammo = selected.maxAmmo;
+  player.maxAmmo = selected.maxAmmo;
+  centerBanner.textContent = `${selected.name} reloaded`;
+  setTimeout(() => {
+    centerBanner.textContent = `Stage ${state.stage} — Level ${state.level}`;
+  }, 320);
 });
 
 function updateCamera() {
   const facing = new THREE.Vector3(Math.sin(aimYaw), 0, Math.cos(aimYaw));
-  const cameraDistance = 5.5;
-  const camPos = player.mesh.position.clone().add(new THREE.Vector3(-facing.x * cameraDistance, 2.5 + Math.sin(aimPitch) * 0.8, -facing.z * cameraDistance));
+  const distance = 5.5;
+  const camPos = player.mesh.position.clone().add(
+    new THREE.Vector3(-facing.x * distance, 2.5 + Math.sin(aimPitch) * 0.8, -facing.z * distance)
+  );
   camera.position.lerp(camPos, 0.15);
   camera.lookAt(player.mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0)));
 }
@@ -496,10 +610,10 @@ function updatePlayerMovement(dt) {
     moveZ = stickVec.y;
   }
 
-  if (keys['w']) moveZ = 1;
-  if (keys['s']) moveZ = -1;
-  if (keys['a']) moveX = -1;
-  if (keys['d']) moveX = 1;
+  if (keys.w) moveZ = 1;
+  if (keys.s) moveZ = -1;
+  if (keys.a) moveX = -1;
+  if (keys.d) moveX = 1;
 
   const input = new THREE.Vector3(moveX, 0, moveZ);
   if (input.lengthSq() > 0.01) input.normalize();
@@ -511,7 +625,6 @@ function updatePlayerMovement(dt) {
   const movement = new THREE.Vector3();
   movement.addScaledVector(forward, input.z * speed);
   movement.addScaledVector(right, input.x * speed);
-
   player.mesh.position.addScaledVector(movement, dt);
   player.mesh.position.x = THREE.MathUtils.clamp(player.mesh.position.x, -mapSize * 0.42, mapSize * 0.42);
   player.mesh.position.z = THREE.MathUtils.clamp(player.mesh.position.z, -mapSize * 0.42, mapSize * 0.42);
@@ -526,11 +639,37 @@ function updatePlayerMovement(dt) {
   player.mesh.rotation.y = aimYaw;
 }
 
+function tryPickup() {
+  for (let i = pickups.length - 1; i >= 0; i--) {
+    const pickup = pickups[i];
+    if (!pickup) continue;
+    if (pickup.position.distanceTo(player.mesh.position) < 1.3) {
+      const kind = pickup.userData.kind;
+      if (kind === 'medkit') {
+        player.health = Math.min(player.maxHealth, player.health + 25);
+        centerBanner.textContent = 'Medkit secured';
+      } else {
+        const selected = weaponDefs[player.currentWeaponIndex];
+        selected.ammo = Math.min(selected.maxAmmo + 10, selected.maxAmmo + 18);
+        player.ammo = selected.ammo;
+        player.maxAmmo = selected.maxAmmo;
+        centerBanner.textContent = 'Ammo cache secured';
+      }
+      scene.remove(pickup);
+      pickups.splice(i, 1);
+      setTimeout(() => {
+        centerBanner.textContent = `Stage ${state.stage} — Level ${state.level}`;
+      }, 260);
+    }
+  }
+}
+
 function handleShooting(dt) {
+  const weapon = weaponDefs[player.currentWeaponIndex];
   if (player.firing && player.ammo > 0) {
     const now = performance.now();
-    if (now - player._lastShot > 170) {
-      player._lastShot = now;
+    if (now - player.lastShot > weapon.fireRate) {
+      player.lastShot = now;
       player.ammo -= 1;
       const origin = player.mesh.position.clone().add(new THREE.Vector3(0, 1.35, 0));
       const dir = new THREE.Vector3(
@@ -547,14 +686,7 @@ function handleShooting(dt) {
     bullet.position.addScaledVector(bullet.userData.vel, dt);
     bullet.userData.life -= dt;
 
-    if (bullet.userData.life <= 0) {
-      scene.remove(bullet);
-      bullets.splice(i, 1);
-      continue;
-    }
-
-    const playerDistance = bullet.position.distanceTo(player.mesh.position);
-    if (playerDistance > 500) {
+    if (bullet.userData.life <= 0 || bullet.position.distanceTo(player.mesh.position) > 500) {
       scene.remove(bullet);
       bullets.splice(i, 1);
       continue;
@@ -564,8 +696,8 @@ function handleShooting(dt) {
       for (let j = bots.length - 1; j >= 0; j--) {
         const bot = bots[j];
         if (!bot || !bot.userData.alive) continue;
-        if (bot.position.distanceTo(bullet.position) < 1.1) {
-          bot.userData.health -= 35;
+        if (bot.position.distanceTo(bullet.position) < 1.0) {
+          bot.userData.health -= weapon.damage;
           scene.remove(bullet);
           bullets.splice(i, 1);
           if (bot.userData.health <= 0) {
@@ -576,7 +708,7 @@ function handleShooting(dt) {
             player.xp += 120;
             centerBanner.textContent = 'Hostile neutralized';
             setTimeout(() => {
-              centerBanner.textContent = `Stage ${GAME_CONFIG.stage} — Level ${GAME_CONFIG.level}`;
+              centerBanner.textContent = `Stage ${state.stage} — Level ${state.level}`;
             }, 220);
           }
           break;
@@ -595,7 +727,6 @@ function handleShooting(dt) {
 function updateBots(dt) {
   bots.forEach((bot) => {
     if (!bot || !bot.userData.alive) return;
-
     const toPlayer = player.mesh.position.clone().sub(bot.position);
     const dist = toPlayer.length();
     if (dist > 0.1) {
@@ -623,12 +754,7 @@ function updateZone(dt) {
     safeZoneRadius = Math.max(12, safeZoneRadius - 5);
     scene.remove(safeZoneMesh);
     safeZoneMesh.geometry.dispose();
-    safeZoneMesh = new THREE.Mesh(
-      new THREE.CircleGeometry(safeZoneRadius, 72),
-      new THREE.MeshBasicMaterial({ color: 0x5ef7b8, wireframe: true, transparent: true, opacity: 0.42 })
-    );
-    safeZoneMesh.rotation.x = -Math.PI / 2;
-    safeZoneMesh.position.y = 0.03;
+    safeZoneMesh = buildZoneMesh(safeZoneRadius);
     scene.add(safeZoneMesh);
   }
 
@@ -641,18 +767,45 @@ function updateZone(dt) {
 function checkGameState() {
   if (player.health <= 0) {
     player.health = 0;
-    centerBanner.textContent = 'Mission failed — reload the level';
+    centerBanner.textContent = 'Mission failed — reload to retry';
     return;
   }
 
-  if (bots.length === 0) {
-    advanceLevel();
+  if (bots.length === 0 && state.waveActive) {
+    state.waveActive = false;
+    player.xp += 180;
+    centerBanner.textContent = 'Objective clear';
+    setTimeout(() => {
+      advanceLevel();
+    }, 700);
   }
+}
+
+function updatePickups(dt) {
+  for (const pickup of pickups) {
+    pickup.rotation.y += dt * 1.3;
+    pickup.position.y = 0.7 + Math.sin(performance.now() * 0.003 + pickup.userData.bob) * 0.25;
+  }
+}
+
+function updateMeta(dt) {
+  tryPickup();
+  updatePickups(dt);
+  updateZone(dt);
+  updateBots(dt);
+  handleShooting(dt);
+  updatePlayerMovement(dt);
+  checkGameState();
+}
+
+function applyThemeColors() {
+  setTheme(state.stage);
 }
 
 loadProgress();
 repopulateStageSelect();
 repopulateLevelSelect();
+applyThemeColors();
 saveProgress();
 updateHUD();
 
@@ -661,27 +814,22 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, clock.getDelta());
 
-  if (!menuScreen.classList.contains('hidden')) {
-    renderer.render(scene, camera);
-    return;
+  if (menuScreen.classList.contains('hidden')) {
+    updateMeta(dt);
+    updateCamera();
+    updateHUD();
   }
-
-  updatePlayerMovement(dt);
-  handleShooting(dt);
-  updateBots(dt);
-  updateZone(dt);
-  checkGameState();
-  updateCamera();
-  updateHUD();
 
   renderer.render(scene, camera);
 }
 
 animate();
-
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 });
+
+setTheme(state.stage);
+updateHUD();
